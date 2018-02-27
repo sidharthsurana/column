@@ -4,6 +4,7 @@
 import os
 
 from ansible import cli
+from ansible import constants
 from ansible import errors
 from ansible.parsing import dataloader
 from ansible.parsing import vault
@@ -24,10 +25,19 @@ def _get_vault_password_file():
         return cfg.get('defaults', 'vault_password_file')
 
 
+def _get_vault_lib():
+    loader = dataloader.DataLoader()
+    vault_ids = constants.DEFAULT_VAULT_IDENTITY_LIST
+
+    vault_secrets = cli.CLI.setup_vault_secrets(loader, vault_ids=vault_ids,
+                            vault_password_files=[_get_vault_password_file()],
+                            ask_vault_pass=False,
+                            auto_prompt=False)
+    return vault.VaultLib(secrets=vault_secrets)
+
+
 def vault_decrypt(value):
-    vault_password = cli.CLI.read_vault_password_file(
-        _get_vault_password_file(), dataloader.DataLoader())
-    this_vault = vault.VaultLib(vault_password)
+    this_vault = _get_vault_lib()
     try:
         return this_vault.decrypt(value)
     except errors.AnsibleError:
@@ -35,7 +45,5 @@ def vault_decrypt(value):
 
 
 def vault_encrypt(value):
-    vault_password = cli.CLI.read_vault_password_file(
-        _get_vault_password_file(), dataloader.DataLoader())
-    this_vault = vault.VaultLib(vault_password)
+    this_vault = _get_vault_lib()
     return this_vault.encrypt(value)

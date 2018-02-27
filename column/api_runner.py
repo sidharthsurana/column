@@ -3,21 +3,22 @@
 
 import logging
 import os
-import six
 
+from ansible import cli
 from ansible import constants
 from ansible.executor import playbook_executor
 from ansible.executor import task_queue_manager
-from ansible import inventory
+from ansible.inventory.manager import InventoryManager
 from ansible.parsing import dataloader
 from ansible.parsing.splitter import parse_kv
 from ansible.playbook import play
-from ansible import vars
+from ansible.plugins.loader import get_all_plugin_loaders
+from ansible.vars.manager import VariableManager
+import six
 
 from column import callback
 from column import exceptions
 from column import runner
-
 
 LOG = logging.getLogger(__name__)
 
@@ -78,22 +79,19 @@ class APIRunner(runner.Runner):
 
         options = self._build_opt_dict(inventory_file, **kwargs)
 
-        variable_manager = vars.VariableManager()
         loader = dataloader.DataLoader()
+        inventory = InventoryManager(loader=loader, sources=options.inventory)
+
+        # create the variable manager, which will be shared throughout
+        # the code, ensuring a consistent view of global variables
+        variable_manager = VariableManager(loader=loader, inventory=inventory)
         options.extra_vars = {six.u(key): six.u(value)
                               for key, value in options.extra_vars.items()}
-        variable_manager.extra_vars = options.extra_vars
-
-        ansible_inv = inventory.Inventory(loader=loader,
-                                          variable_manager=variable_manager,
-                                          host_list=options.inventory)
-        ansible_inv.set_playbook_basedir(os.path.dirname(playbook_file))
-        variable_manager.set_inventory(ansible_inv)
-        ansible_inv.subset(options.subset)
-
+        variable_manager.extra_vars = cli.load_extra_vars(loader, options)
+        inventory.subset(options.subset)
         pbex = playbook_executor.PlaybookExecutor(
             playbooks=playbooks,
-            inventory=ansible_inv,
+            inventory=inventory,
             variable_manager=variable_manager,
             loader=loader,
             options=options,
@@ -130,16 +128,20 @@ class APIRunner(runner.Runner):
         passwords = {'conn_pass': conn_pass, 'become_pass': become_pass}
 
         options = self._build_opt_dict(inventory_file, **kwargs)
+        # dynamically load any plugins
+        get_all_plugin_loaders()
 
-        variable_manager = vars.VariableManager()
         loader = dataloader.DataLoader()
-        variable_manager.extra_vars = options.extra_vars
+        inventory = InventoryManager(loader=loader, sources=options.inventory)
 
-        ansible_inv = inventory.Inventory(loader=loader,
-                                          variable_manager=variable_manager,
-                                          host_list=options.inventory)
-        variable_manager.set_inventory(ansible_inv)
-        ansible_inv.subset(options.subset)
+        # create the variable manager, which will be shared throughout
+        # the code, ensuring a consistent view of global variables
+        variable_manager = VariableManager(loader=loader, inventory=inventory)
+        options.extra_vars = {six.u(key): six.u(value) for key, value in
+                              options.extra_vars.items()}
+        variable_manager.extra_vars = cli.load_extra_vars(loader, options)
+
+        inventory.subset(options.subset)
 
         play_ds = self._play_ds(hosts, module_name, module_args)
         play_obj = play.Play().load(play_ds, variable_manager=variable_manager,
@@ -147,7 +149,7 @@ class APIRunner(runner.Runner):
 
         try:
             tqm = task_queue_manager.TaskQueueManager(
-                inventory=ansible_inv,
+                inventory=inventory,
                 variable_manager=variable_manager,
                 loader=loader,
                 options=options,
@@ -190,7 +192,8 @@ class APIRunner(runner.Runner):
             'extra_vars': {}, 'subset': constants.DEFAULT_SUBSET,
             'tags': [], 'verbosity': 0,
             'connection': constants.DEFAULT_TRANSPORT,
-            'timeout': constants.DEFAULT_TIMEOUT
+            'timeout': constants.DEFAULT_TIMEOUT,
+            'diff': constants.DIFF_ALWAYS
         }
         args.update(self.custom_opts)
         args.update(kwargs)
