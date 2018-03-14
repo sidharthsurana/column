@@ -75,7 +75,7 @@ class RunManager(object):
 
     def _run_playbook(self, run):
         play_context.PlayContext._attributes = copy.deepcopy(
-            api.context_attributes)
+            api.CONTEXT_ATTRIBUTES)
         column_opts = self._build_opts(run)
         progress_callback = progress.AnsibleTrackProgress()
         self.column_manager.add_callback(progress_callback)
@@ -91,6 +91,9 @@ class RunManager(object):
             self._update_run(run['id'], objects.State.ERROR, e.message)
         except exceptions.InvalidParameter as e:
             self._update_run(run['id'], objects.State.ERROR, e.message)
+        except exceptions.ParsePlaybookError as e:
+            self._update_run(run['id'], objects.State.ERROR, e.message)
+        test = run
 
     def create_run(self, run):
         run['state'] = objects.State.RUNNING

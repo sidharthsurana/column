@@ -1,11 +1,13 @@
 # Copyright (c) 2017 VMware, Inc. All Rights Reserved.
 # SPDX-License-Identifier: GPL-3.0
 
+import json
 import logging
 import os
 
 from ansible import cli
 from ansible import constants
+from ansible import errors
 from ansible.executor import playbook_executor
 from ansible.executor import task_queue_manager
 from ansible.inventory.manager import InventoryManager
@@ -79,14 +81,14 @@ class APIRunner(runner.Runner):
 
         options = self._build_opt_dict(inventory_file, **kwargs)
 
+        if six.PY2:
+            options.extra_vars = json.loads(json.dumps(options.extra_vars))
+
         loader = dataloader.DataLoader()
         inventory = InventoryManager(loader=loader, sources=options.inventory)
-
         # create the variable manager, which will be shared throughout
         # the code, ensuring a consistent view of global variables
         variable_manager = VariableManager(loader=loader, inventory=inventory)
-        options.extra_vars = {six.u(key): six.u(value)
-                              for key, value in options.extra_vars.items()}
         variable_manager.extra_vars = cli.load_extra_vars(loader, options)
         inventory.subset(options.subset)
         pbex = playbook_executor.PlaybookExecutor(
@@ -102,8 +104,10 @@ class APIRunner(runner.Runner):
         # There is no public API for adding callbacks, hence we use a private
         # property to add callbacks
         pbex._tqm._callback_plugins.extend(self._callbacks)
-
-        status = pbex.run()
+        try:
+            pbex.run()
+        except errors.AnsibleParserError as e:
+            raise exceptions.ParsePlaybookError(msg=str(e))
         stats = pbex._tqm._stats
         failed_results = errors_callback.failed_results
         result = self._process_stats(stats, failed_results)
