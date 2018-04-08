@@ -89,7 +89,7 @@ class APIRunner(runner.Runner):
         # create the variable manager, which will be shared throughout
         # the code, ensuring a consistent view of global variables
         variable_manager = VariableManager(loader=loader, inventory=inventory)
-        variable_manager.extra_vars = cli.load_extra_vars(loader, options)
+        variable_manager.extra_vars = options.extra_vars
         inventory.subset(options.subset)
         pbex = playbook_executor.PlaybookExecutor(
             playbooks=playbooks,
